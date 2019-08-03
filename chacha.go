@@ -8,9 +8,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math/bits"
 )
-
-var littleEndian = binary.LittleEndian
 
 // Cipher is an instance of the ChaCha stream cipher. It implements both
 // the io.Reader and crypto/cipher.Stream interfaces.
@@ -34,33 +33,29 @@ func New(key, iv []byte, rounds int) *Cipher {
 	c.input[1] = 0x3320646e //
 	c.input[2] = 0x79622d32 //
 	c.input[3] = 0x6b206574 //
-	c.input[4] = littleEndian.Uint32(key[0:])
-	c.input[5] = littleEndian.Uint32(key[4:])
-	c.input[6] = littleEndian.Uint32(key[8:])
-	c.input[7] = littleEndian.Uint32(key[12:])
-	c.input[8] = littleEndian.Uint32(key[16:])
-	c.input[9] = littleEndian.Uint32(key[20:])
-	c.input[10] = littleEndian.Uint32(key[24:])
-	c.input[11] = littleEndian.Uint32(key[28:])
-	c.input[14] = littleEndian.Uint32(iv[0:])
-	c.input[15] = littleEndian.Uint32(iv[4:])
+	c.input[4] = binary.LittleEndian.Uint32(key[0:])
+	c.input[5] = binary.LittleEndian.Uint32(key[4:])
+	c.input[6] = binary.LittleEndian.Uint32(key[8:])
+	c.input[7] = binary.LittleEndian.Uint32(key[12:])
+	c.input[8] = binary.LittleEndian.Uint32(key[16:])
+	c.input[9] = binary.LittleEndian.Uint32(key[20:])
+	c.input[10] = binary.LittleEndian.Uint32(key[24:])
+	c.input[11] = binary.LittleEndian.Uint32(key[28:])
+	c.input[14] = binary.LittleEndian.Uint32(iv[0:])
+	c.input[15] = binary.LittleEndian.Uint32(iv[4:])
 	c.rounds = rounds
 	return c
 }
 
-func rotate(v uint32, n uint) uint32 {
-	return v<<n | v>>(32-n)
-}
-
 func quarterround(x *[16]uint32, a, b, c, d int) {
 	x[a] += x[b]
-	x[d] = rotate(x[d]^x[a], 16)
+	x[d] = bits.RotateLeft32(x[d]^x[a], 16)
 	x[c] += x[d]
-	x[b] = rotate(x[b]^x[c], 12)
+	x[b] = bits.RotateLeft32(x[b]^x[c], 12)
 	x[a] += x[b]
-	x[d] = rotate(x[d]^x[a], 8)
+	x[d] = bits.RotateLeft32(x[d]^x[a], 8)
 	x[c] += x[d]
-	x[b] = rotate(x[b]^x[c], 7)
+	x[b] = bits.RotateLeft32(x[b]^x[c], 7)
 }
 
 // Fills the output field with the next block and sets avail accordingly.
@@ -87,7 +82,7 @@ func (c *Cipher) next() error {
 		x[i] += c.input[i]
 	}
 	for i := 0; i < 16; i++ {
-		littleEndian.PutUint32(c.output[i*4:], x[i])
+		binary.LittleEndian.PutUint32(c.output[i*4:], x[i])
 	}
 
 	// Update block counter
