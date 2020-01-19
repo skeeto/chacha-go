@@ -14,9 +14,10 @@ As of Go 1.12, this implementation is about 5x slower than the C version
 package main
 
 import (
-	"github.com/skeeto/chacha-go"
 	"io"
 	"os"
+
+	"nullprogram.com/x/chacha"
 )
 
 func main() {
