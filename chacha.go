@@ -8,17 +8,19 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"math/bits"
 )
+
+// avail replaced with nextByte by Ron Charlton, public domain 2022-09-06,
+// a 25 percentage point speedup.
 
 // Cipher is an instance of the ChaCha stream cipher. It implements both
 // the io.Reader and crypto/cipher.Stream interfaces.
 type Cipher struct {
-	input  [16]uint32
-	output [64]byte
-	avail  []byte
-	rounds int
-	eof    bool
+	input    [16]uint32
+	output   [64]byte
+	nextByte int
+	rounds   int
+	eof      bool
 }
 
 var _ cipher.Stream = (*Cipher)(nil)
@@ -44,18 +46,8 @@ func New(key, iv []byte, rounds int) *Cipher {
 	c.input[14] = binary.LittleEndian.Uint32(iv[0:])
 	c.input[15] = binary.LittleEndian.Uint32(iv[4:])
 	c.rounds = rounds
+	c.nextByte = len(c.output)
 	return c
-}
-
-func quarterround(x *[16]uint32, a, b, c, d int) {
-	x[a] += x[b]
-	x[d] = bits.RotateLeft32(x[d]^x[a], 16)
-	x[c] += x[d]
-	x[b] = bits.RotateLeft32(x[b]^x[c], 12)
-	x[a] += x[b]
-	x[d] = bits.RotateLeft32(x[d]^x[a], 8)
-	x[c] += x[d]
-	x[b] = bits.RotateLeft32(x[b]^x[c], 7)
 }
 
 // Fills the output field with the next block and sets avail accordingly.
@@ -69,19 +61,82 @@ func (c *Cipher) next() error {
 		x[i] = c.input[i]
 	}
 	for i := c.rounds; i > 0; i -= 2 {
-		quarterround(&x, 0, 4, 8, 12)
-		quarterround(&x, 1, 5, 9, 13)
-		quarterround(&x, 2, 6, 10, 14)
-		quarterround(&x, 3, 7, 11, 15)
-		quarterround(&x, 0, 5, 10, 15)
-		quarterround(&x, 1, 6, 11, 12)
-		quarterround(&x, 2, 7, 8, 13)
-		quarterround(&x, 3, 4, 9, 14)
+		// explicit manipulation of x inserted by Ron Charlton, public
+		// domain 2022-09-06. 37% speedup.
+		x[0] = x[0] + x[4]
+		x[12] = ((x[12] ^ x[0]) << 16) | ((x[12] ^ x[0]) >> (32 - 16))
+		x[8] = x[8] + x[12]
+		x[4] = ((x[4] ^ x[8]) << 12) | ((x[4] ^ x[8]) >> (32 - 12))
+		x[0] = x[0] + x[4]
+		x[12] = ((x[12] ^ x[0]) << 8) | ((x[12] ^ x[0]) >> (32 - 8))
+		x[8] = x[8] + x[12]
+		x[4] = ((x[4] ^ x[8]) << 7) | ((x[4] ^ x[8]) >> (32 - 7))
+
+		x[1] = x[1] + x[5]
+		x[13] = ((x[13] ^ x[1]) << 16) | ((x[13] ^ x[1]) >> (32 - 16))
+		x[9] = x[9] + x[13]
+		x[5] = ((x[5] ^ x[9]) << 12) | ((x[5] ^ x[9]) >> (32 - 12))
+		x[1] = x[1] + x[5]
+		x[13] = ((x[13] ^ x[1]) << 8) | ((x[13] ^ x[1]) >> (32 - 8))
+		x[9] = x[9] + x[13]
+		x[5] = ((x[5] ^ x[9]) << 7) | ((x[5] ^ x[9]) >> (32 - 7))
+
+		x[2] = x[2] + x[6]
+		x[14] = ((x[14] ^ x[2]) << 16) | ((x[14] ^ x[2]) >> (32 - 16))
+		x[10] = x[10] + x[14]
+		x[6] = ((x[6] ^ x[10]) << 12) | ((x[6] ^ x[10]) >> (32 - 12))
+		x[2] = x[2] + x[6]
+		x[14] = ((x[14] ^ x[2]) << 8) | ((x[14] ^ x[2]) >> (32 - 8))
+		x[10] = x[10] + x[14]
+		x[6] = ((x[6] ^ x[10]) << 7) | ((x[6] ^ x[10]) >> (32 - 7))
+
+		x[3] = x[3] + x[7]
+		x[15] = ((x[15] ^ x[3]) << 16) | ((x[15] ^ x[3]) >> (32 - 16))
+		x[11] = x[11] + x[15]
+		x[7] = ((x[7] ^ x[11]) << 12) | ((x[7] ^ x[11]) >> (32 - 12))
+		x[3] = x[3] + x[7]
+		x[15] = ((x[15] ^ x[3]) << 8) | ((x[15] ^ x[3]) >> (32 - 8))
+		x[11] = x[11] + x[15]
+		x[7] = ((x[7] ^ x[11]) << 7) | ((x[7] ^ x[11]) >> (32 - 7))
+
+		x[0] = x[0] + x[5]
+		x[15] = ((x[15] ^ x[0]) << 16) | ((x[15] ^ x[0]) >> (32 - 16))
+		x[10] = x[10] + x[15]
+		x[5] = ((x[5] ^ x[10]) << 12) | ((x[5] ^ x[10]) >> (32 - 12))
+		x[0] = x[0] + x[5]
+		x[15] = ((x[15] ^ x[0]) << 8) | ((x[15] ^ x[0]) >> (32 - 8))
+		x[10] = x[10] + x[15]
+		x[5] = ((x[5] ^ x[10]) << 7) | ((x[5] ^ x[10]) >> (32 - 7))
+
+		x[1] = x[1] + x[6]
+		x[12] = ((x[12] ^ x[1]) << 16) | ((x[12] ^ x[1]) >> (32 - 16))
+		x[11] = x[11] + x[12]
+		x[6] = ((x[6] ^ x[11]) << 12) | ((x[6] ^ x[11]) >> (32 - 12))
+		x[1] = x[1] + x[6]
+		x[12] = ((x[12] ^ x[1]) << 8) | ((x[12] ^ x[1]) >> (32 - 8))
+		x[11] = x[11] + x[12]
+		x[6] = ((x[6] ^ x[11]) << 7) | ((x[6] ^ x[11]) >> (32 - 7))
+
+		x[2] = x[2] + x[7]
+		x[13] = ((x[13] ^ x[2]) << 16) | ((x[13] ^ x[2]) >> (32 - 16))
+		x[8] = x[8] + x[13]
+		x[7] = ((x[7] ^ x[8]) << 12) | ((x[7] ^ x[8]) >> (32 - 12))
+		x[2] = x[2] + x[7]
+		x[13] = ((x[13] ^ x[2]) << 8) | ((x[13] ^ x[2]) >> (32 - 8))
+		x[8] = x[8] + x[13]
+		x[7] = ((x[7] ^ x[8]) << 7) | ((x[7] ^ x[8]) >> (32 - 7))
+
+		x[3] = x[3] + x[4]
+		x[14] = ((x[14] ^ x[3]) << 16) | ((x[14] ^ x[3]) >> (32 - 16))
+		x[9] = x[9] + x[14]
+		x[4] = ((x[4] ^ x[9]) << 12) | ((x[4] ^ x[9]) >> (32 - 12))
+		x[3] = x[3] + x[4]
+		x[14] = ((x[14] ^ x[3]) << 8) | ((x[14] ^ x[3]) >> (32 - 8))
+		x[9] = x[9] + x[14]
+		x[4] = ((x[4] ^ x[9]) << 7) | ((x[4] ^ x[9]) >> (32 - 7))
 	}
 	for i := 0; i < 16; i++ {
 		x[i] += c.input[i]
-	}
-	for i := 0; i < 16; i++ {
 		binary.LittleEndian.PutUint32(c.output[i*4:], x[i])
 	}
 
@@ -93,7 +148,7 @@ func (c *Cipher) next() error {
 	c.input[12] = uint32(ctr)
 	c.input[13] = uint32(ctr >> 32)
 
-	c.avail = c.output[:]
+	c.nextByte = 0
 	return nil
 }
 
@@ -113,13 +168,14 @@ func (c *Cipher) Seek(n uint64) {
 func (c *Cipher) Read(p []byte) (int, error) {
 	n := 0
 	for ; n < len(p); n++ {
-		if len(c.avail) == 0 {
+		if c.nextByte >= len(c.output) {
 			if err := c.next(); err != nil {
 				return n, io.EOF
 			}
+			c.nextByte = 0
 		}
-		p[n] = c.avail[0]
-		c.avail = c.avail[1:] // this is probably slow?
+		p[n] = c.output[c.nextByte]
+		c.nextByte++
 	}
 	return n, nil
 }
@@ -128,12 +184,13 @@ func (c *Cipher) Read(p []byte) (int, error) {
 // keystream has been exhausted.
 func (c *Cipher) XORKeyStream(dst, src []byte) {
 	for i := 0; i < len(dst); i++ {
-		if len(c.avail) == 0 {
+		if c.nextByte >= len(c.output) {
 			if err := c.next(); err != nil {
 				panic(err)
 			}
+			c.nextByte = 0
 		}
-		dst[i] = src[i] ^ c.avail[0]
-		c.avail = c.avail[1:] // this is probably slow?
+		dst[i] = src[i] ^ c.output[c.nextByte]
+		c.nextByte++
 	}
 }
